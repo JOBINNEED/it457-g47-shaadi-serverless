@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  IT457 Group 47 - Shaadi.com serverless PoC (ap-south-1). Recreates the stack that was built in the
+  AWS console: HTTP API -> 4 Lambda functions -> DynamoDB / S3 / Rekognition.
+  Deploy:  sam build && sam deploy --guided --region ap-south-1
+  Delete:  sam delete
+
+Globals:
+  Function:
+    Runtime: python3.13          # console build used Python 3.15; use the newest runtime SAM supports
+    Architectures: [x86_64]
+    Timeout: 10
+    MemorySize: 512
+    Tags:
+      project: it457-g47
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      Tags:
+        project: it457-g47
+
+  InterestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Interests
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: interestId, AttributeType: S}]
+      KeySchema: [{AttributeName: interestId, KeyType: HASH}]
+      Tags: [{Key: project, Value: it457-g47}]
+
+  VerdictsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: verdicts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: verdictId, AttributeType: S}]
+      KeySchema: [{AttributeName: verdictId, KeyType: HASH}]
+      Tags: [{Key: project, Value: it457-g47}]
+
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub it457-g47-shaadi-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags: [{Key: project, Value: it457-g47}]
+
+  InterestFunction:              # main PoC: "send interest" API
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: shaadi-interest-api
+      CodeUri: ../src/lambdas
+      Handler: interest_function.lambda_handler
+      Environment: {Variables: {TABLE_NAME: !Ref InterestsTable}}
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:PutItem, dynamodb:GetItem]
+              Resource: !GetAtt InterestsTable.Arn
+      Events:
+        Root: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: GET, Path: /}}
+        Create: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: POST, Path: /interest}}
+        Read: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: GET, Path: "/interest/{id}"}}
+
+  PingFunction:                  # Lambda A: baseline, no AWS calls
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: shaadi-ping
+      CodeUri: ../src/lambdas
+      Handler: ping_function.lambda_handler
+      MemorySize: 128
+      Events:
+        Ping: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: GET, Path: /baseline}}  # /ping is reserved by API Gateway
+
+  ModerateFunction:              # Lambda B: S3 photo -> Rekognition -> verdict in DynamoDB
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: shaadi-moderate
+      CodeUri: ../src/lambdas
+      Handler: moderate_function.lambda_handler
+      Environment: {Variables: {BUCKET: !Ref PhotoBucket, TABLE_NAME: !Ref VerdictsTable}}
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${PhotoBucket.Arn}/photos/*"
+            - Effect: Allow
+              Action: rekognition:DetectModerationLabels
+              Resource: "*"
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt VerdictsTable.Arn
+      Events:
+        Moderate: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: POST, Path: /moderate}}
+
+  LoadgenFunction:               # experiment harness (invoked manually, no API route)
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: shaadi-loadgen
+      CodeUri: ../experiments
+      Handler: loadgen_function.lambda_handler
+      MemorySize: 1024
+      Timeout: 900
+      Environment:
+        Variables:
+          API_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+          BUCKET: !Ref PhotoBucket
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [lambda:GetFunctionConfiguration, lambda:UpdateFunctionConfiguration]
+              Resource:
+                - !GetAtt PingFunction.Arn
+                - !GetAtt InterestFunction.Arn
+                - !GetAtt ModerateFunction.Arn
+            - Effect: Allow
+              Action: [logs:StartQuery, logs:GetQueryResults]
+              Resource: "*"
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${PhotoBucket.Arn}/results/*"
+
+  DemoFunction:                  # presentation page: GET /demo and helpers under /demo/*
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: shaadi-demo
+      CodeUri: ../src/demo
+      Handler: demo_function.lambda_handler
+      MemorySize: 128
+      Timeout: 30
+      Environment: {Variables: {BUCKET: !Ref PhotoBucket}}
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${PhotoBucket.Arn}/photos/*"
+            - Effect: Allow
+              Action: dynamodb:Scan
+              Resource: [!GetAtt VerdictsTable.Arn, !GetAtt InterestsTable.Arn]
+            - Effect: Allow
+              Action: [lambda:GetFunctionConfiguration, lambda:UpdateFunctionConfiguration]
+              Resource: [!GetAtt PingFunction.Arn, !GetAtt InterestFunction.Arn, !GetAtt ModerateFunction.Arn]
+      Events:
+        Page: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: GET, Path: /demo}}
+        Helpers: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Method: ANY, Path: "/demo/{proxy+}"}}
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: it457-g47-5usd
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: {Amount: 5, Unit: USD}
+
+Outputs:
+  DemoPage:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/demo"
+  ApiUrl:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
