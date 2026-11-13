@@ -1,0 +1,8 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Sid": "ReadTestPhotos", "Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::it457-g47-shaadi-705029438856/photos/*"},
+    {"Sid": "ModeratePhotos", "Effect": "Allow", "Action": "rekognition:DetectModerationLabels", "Resource": "*"},
+    {"Sid": "WriteVerdicts", "Effect": "Allow", "Action": "dynamodb:PutItem", "Resource": "arn:aws:dynamodb:ap-south-1:705029438856:table/verdicts"}
+  ]
+}

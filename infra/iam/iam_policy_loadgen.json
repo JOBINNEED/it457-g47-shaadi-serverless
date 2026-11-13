@@ -1,0 +1,8 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Sid": "ForceColdStarts", "Effect": "Allow", "Action": ["lambda:GetFunctionConfiguration", "lambda:UpdateFunctionConfiguration"], "Resource": ["arn:aws:lambda:ap-south-1:705029438856:function:shaadi-ping", "arn:aws:lambda:ap-south-1:705029438856:function:shaadi-interest-api", "arn:aws:lambda:ap-south-1:705029438856:function:shaadi-moderate"]},
+    {"Sid": "QueryReportLines", "Effect": "Allow", "Action": ["logs:StartQuery", "logs:GetQueryResults"], "Resource": "*"},
+    {"Sid": "WriteResults", "Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::it457-g47-shaadi-705029438856/results/*"}
+  ]
+}
