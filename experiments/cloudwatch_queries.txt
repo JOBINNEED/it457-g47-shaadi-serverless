@@ -1,0 +1,8 @@
+-- 1. Per memory size, all invocations
+filter @type = "REPORT" | stats count(*) as invocations, avg(@initDuration) as avgInitMs, min(@initDuration) as minInitMs, max(@initDuration) as maxInitMs, avg(@duration) as avgDurMs, pct(@duration, 50) as p50DurMs, avg(@billedDuration) as avgBilledMs, max(@maxMemoryUsed) as maxMemBytes by @memorySize
+
+-- 2. Every cold start
+filter @type = "REPORT" and ispresent(@initDuration) | fields @timestamp, @memorySize, @initDuration, @duration, @billedDuration | sort @timestamp asc | limit 100
+
+-- 3. Warm invocations only
+filter @type = "REPORT" and not ispresent(@initDuration) | stats count(*) as warmCalls, avg(@duration) as avgDurMs, pct(@duration, 50) as p50DurMs, pct(@duration, 95) as p95DurMs, avg(@billedDuration) as avgBilledMs, pct(@billedDuration, 50) as p50BilledMs by @memorySize
