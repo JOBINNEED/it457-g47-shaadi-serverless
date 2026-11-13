@@ -1,0 +1,4 @@
+target,virtual_users,requests,ok,throttled_or_error,rps,p50_ms,p95_ms,p99_ms,max_ms,cold_starts
+ping,1,3969,3969,0,66.2,14.72,17.74,20.67,200.1,1
+ping,9,15983,5936,10047,266.4,38.25,50.88,56.16,280.89,8
+ping,50,14823,6044,8779,247.1,197.51,315.67,380.9,760.83,0
